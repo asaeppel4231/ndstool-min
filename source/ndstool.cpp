@@ -65,7 +65,7 @@ unsigned int deviceListRamAddress = 0x03800000;
  */
 void Title()
 {
-	printf("Nintendo DS rom tool " PACKAGE_VERSION " - %s\nby Rafael Vuijk, Dave Murphy, Alexei Karpenko\n",CompileDate);
+	printf("Nintendo DS rom tool\nby Rafael Vuijk, Dave Murphy, Alexei Karpenko\n");
 }
 
 /*
