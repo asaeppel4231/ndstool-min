@@ -44,7 +44,11 @@ hook, or SHA-1 subsystems.
 
 ```sh
 g++ -std=gnu++17 -O2 -Wall -Wextra source/*.cpp -o ndstool
+cargo test
 ```
 
-There is no checked-in test suite. `./ndstool -?` exits silently; test ROM
-operations with suitable input images when available.
+`src/lib.rs` is the Rust `ndsrom` library. It preserves unknown image bytes,
+validates core section/FAT bounds, and supports file reads and replacement by
+FAT ID. Resized files are appended and their FAT entries redirected. It does
+not rebuild FNT paths or DSi/TWL authentication data. `./ndstool -?` exits
+silently; test ROM operations with suitable input images when available.

@@ -1,0 +1,9 @@
+[package]
+name = "ndsrom"
+version = "0.1.0"
+edition = "2021"
+description = "Read, inspect, modify, and write Nintendo DS ROM images"
+license = "GPL-3.0-only"
+
+[lib]
+path = "src/lib.rs"
