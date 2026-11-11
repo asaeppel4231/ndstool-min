@@ -135,28 +135,10 @@ struct Header
 #pragma pack()
 
 
-struct Country
-{
-	const char countrycode;
-	const char *name;
-};
-
-struct Maker
-{
-	const char *makercode;
-	const char *name;
-};
-
-extern Country countries[];
-extern int NumCountries;
-
-extern Maker makers[];
-extern int NumMakers;
-
 unsigned short CalcHeaderCRC(Header &header);
 unsigned short CalcLogoCRC(Header &header);
 void FixHeaderCRC(char *ndsfilename);
 void ShowInfo(char *ndsfilename);
-int HashAndCompareWithList(char *filename, unsigned char sha1[]);
+int HashAndCompareWithList(char *filename, unsigned char digest[]);
 int DetectRomType();
 unsigned short CalcSecureAreaCRC(bool encrypt);

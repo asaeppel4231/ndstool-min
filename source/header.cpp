@@ -1,10 +1,6 @@
 #include "ndstool.h"
-#include "banner.h"
-#include "sha1.h"
 #include "crc.h"
-#include "bigint.h"
 #include "encryption.h"
-
 /*
  * Data
  */
@@ -108,7 +104,7 @@ void FixHeaderCRC(char *ndsfilename)
 		header.rsa_signature[0x00] = 0;
 		header.rsa_signature[0x01] = 1;
 		header.rsa_signature[0x6B] = 0;
-		sha1(&header.rsa_signature[0x6C], (const unsigned char*)&header, 0xE00);
+		memset(&header.rsa_signature[0x6C], 0, 0xE00);
 	}
 
 	fseek(fNDS, 0, SEEK_SET);
@@ -129,29 +125,11 @@ void ShowHeaderInfo(Header &header, int romType, unsigned int length = 0x200)
 	printf("0x0C\t%-25s\t", "Game code");
 	for (unsigned int i=0; i<sizeof(header.gamecode); i++)
 		if (header.gamecode[i]) putchar(header.gamecode[i]);
-	for (int i=0; i<NumCountries; i++)
-	{
-		if (countries[i].countrycode == header.gamecode[3])
-		{
-			printf(" (NTR-");
-			for (unsigned int j=0; j<sizeof(header.gamecode); j++)
-				if (header.gamecode[j]) putchar(header.gamecode[j]);
-			printf("-%s)", countries[i].name);
-			break;
-		}
-	}
 	printf("\n");
 	
-	printf("0x10\t%-25s\t", "Maker code"); for (unsigned int i=0; i<sizeof(header.makercode); i++)
+	printf("0x10\t%-25s\t", "Maker code");
+	for (unsigned int i=0; i<sizeof(header.makercode); i++)
 		if (header.makercode[i]) putchar(header.makercode[i]);
-	for (int j=0; j<NumMakers; j++)
-	{
-		if ((makers[j].makercode[0] == header.makercode[0]) && (makers[j].makercode[1] == header.makercode[1]))
-		{
-			printf(" (%s)", makers[j].name);
-			break;
-		}
-	}
 	printf("\n");
 
 	printf("0x12\t%-25s\t0x%02X\n", "Unit code", header.unitcode);
@@ -241,121 +219,6 @@ void ShowHeaderInfo(Header &header, int romType, unsigned int length = 0x200)
 }
 
 /*
- * HeaderSha1
- */
-void HeaderSha1(FILE *fNDS, unsigned char *header_sha1, int romType)
-{
-	sha1_ctx m_sha1;
-	sha1_begin(&m_sha1);
-	unsigned char buf[32 + 0x200];
-	fseek(fNDS, 0x200, SEEK_SET);		// check for 32 bytes text + alternate header
-	fread(buf, 1, sizeof(buf), fNDS);
-	if (!memcmp(buf, "DS DOWNLOAD PLAY", 16))	// found?
-	{
-		sha1_hash(buf + 0x20, 0x160, &m_sha1);	// alternate header
-		if (verbose >= 2)
-		{
-			printf("{ DS Download Play(TM) / Wireless MultiBoot header information:\n");
-			ShowHeaderInfo(*(Header *)(buf + 0x20), romType, 0x160);
-			printf("}\n");
-		}
-	}
-	else
-	{
-		fseek(fNDS, 0, SEEK_SET);
-		fread(buf, 1, sizeof(buf), fNDS);
-		sha1_hash(buf, 0x160, &m_sha1);
-	}
-	sha1_end(header_sha1, &m_sha1);
-}
-
-/*
- * Arm9Sha1Multiboot
- */
-void Arm9Sha1Multiboot(FILE *fNDS, unsigned char *arm9_sha1)
-{
-	sha1_ctx m_sha1;
-	sha1_begin(&m_sha1);
-	fseek(fNDS, header.arm9_rom_offset, SEEK_SET);
-	unsigned int len = header.arm9_size;
-	unsigned char *buf = new unsigned char [len];
-	fread(buf, 1, len, fNDS);
-	//printf("%u\n", len);
-	sha1_hash(buf, len, &m_sha1);
-	delete [] buf;
-	sha1_end(arm9_sha1, &m_sha1);
-}
-
-/*
- * Arm9Sha1ClearedOutArea
- */
-void Arm9Sha1ClearedOutArea(FILE *fNDS, unsigned char *arm9_sha1)
-{
-	sha1_ctx m_sha1;
-	sha1_begin(&m_sha1);
-	fseek(fNDS, header.arm9_rom_offset, SEEK_SET);
-	unsigned int len = header.arm9_size;
-	unsigned char *buf = new unsigned char [len];
-
-	int len1 = (0x5000 - header.arm9_rom_offset);		// e.g. 0x5000 - 0x4000 = 0x1000
-	int len3 = header.arm9_size - (0x7000 - header.arm9_rom_offset);	// e.g. 0x10000 - (0x7000 - 0x4000) = 0xD000
-	int len2 = header.arm9_size - len1 - len3;			// e.g. 0x10000 - 0x1000 - 0xD000 = 0x2000
-	if (len1 > 0) fread(buf, 1, len1, fNDS);
-	if (len2 > 0) { memset(buf + len1, 0, len2); fseek(fNDS, len2, SEEK_CUR); }		// gets cleared for security?
-	if (len3 > 0) fread(buf + len1 + len2, 1, len3, fNDS);
-//	printf("%X %X %X\n", len1, len2, len3);
-
-//		memset(buf, 0, 0x800);		// clear "secure area" too
-
-	sha1_hash(buf, len, &m_sha1);
-	delete [] buf;
-	sha1_end(arm9_sha1, &m_sha1);
-}
-
-/*
- * Arm7Sha1
- */
-void Arm7Sha1(FILE *fNDS, unsigned char *arm7_sha1)
-{
-	sha1_ctx m_sha1;
-	sha1_begin(&m_sha1);
-	fseek(fNDS, header.arm7_rom_offset, SEEK_SET);
-	unsigned int len = header.arm7_size;
-	unsigned char *buf = new unsigned char [len];
-	fread(buf, 1, len, fNDS);
-	//printf("%u\n", len);
-	sha1_hash(buf, len, &m_sha1);
-	delete [] buf;
-	sha1_end(arm7_sha1, &m_sha1);
-}
-
-/*
- * CompareSha1WithList
- */
-int CompareSha1WithList(unsigned char *arm7_sha1, const unsigned char *text, unsigned int textSize)
-{
-	while (1)
-	{
-		//printf("\n");
-		for (int i=0; i<SHA1_DIGEST_SIZE; i++)
-		{
-			unsigned char b = 0;
-			for (int n=0; n<2; n++)
-			{
-				//printf("%c", *text);
-				if (!*text) return -1;
-				b = b << 4 | ((*text > '9') ? ((*text - 'A') & 7) + 10 : *text - '0');
-				text++;
-			}
-			//printf("%02X", b);
-			if (b != arm7_sha1[i]) break; else if (i == 19) return 0;
-		}
-		while (*text && (*text >= ' ')) text++;		// line end
-		while (*text && (*text < ' ')) text++;		// new line
-	}
-}
-
-/*
  * strsepc
  */
 char *strsepc(char **s, char d)
@@ -411,86 +274,9 @@ void RomListInfo(unsigned int crc32_match)
  */
 void ShowVerboseInfo(FILE *fNDS, Header &header, int romType)
 {
-	// calculate SHA1 of ARM7 binary
-	unsigned char arm7_sha1[SHA1_DIGEST_SIZE];
-	Arm7Sha1(fNDS, arm7_sha1);
-
-	// find signature data
-	unsigned_int signature_id = 0;
-	fseek(fNDS, header.application_end_offset, SEEK_SET);
-	fread(&signature_id, sizeof(signature_id), 1, fNDS);
-	if (signature_id != 0x00016361)
-	{
-		fseek(fNDS, header.application_end_offset - 136, SEEK_SET);		// try again
-		fread(&signature_id, sizeof(signature_id), 1, fNDS);
-	}
-	if (signature_id == 0x00016361)
-	{
-		printf("\n");
-
-		unsigned char signature[128];
-		fread(signature, 1, sizeof(signature), fNDS);
-
-		unsigned char sha_parts[3*SHA1_DIGEST_SIZE + 4];
-		fread(sha_parts + 3*SHA1_DIGEST_SIZE, 4, 1, fNDS);		// some number
-		
-		//printf("%08X\n", *(unsigned int *)(sha_parts + 3*SHA1_DIGEST_SIZE));
-
-		unsigned char header_sha1[SHA1_DIGEST_SIZE];
-		HeaderSha1(fNDS, header_sha1, romType);
-		memcpy(sha_parts + 0*SHA1_DIGEST_SIZE, header_sha1, SHA1_DIGEST_SIZE);
-
-		unsigned char arm9_sha1[SHA1_DIGEST_SIZE];
-		if (romType == ROMTYPE_MULTIBOOT)
-		{
-			Arm9Sha1Multiboot(fNDS, arm9_sha1);
-		}
-		else
-		{
-			Arm9Sha1ClearedOutArea(fNDS, arm9_sha1);
-		}
-		memcpy(sha_parts + 1*SHA1_DIGEST_SIZE, arm9_sha1, SHA1_DIGEST_SIZE);
-
-		memcpy(sha_parts + 2*SHA1_DIGEST_SIZE, arm7_sha1, SHA1_DIGEST_SIZE);
-
-		unsigned char sha_final[SHA1_DIGEST_SIZE];
-		{
-			sha1_ctx m_sha1;
-			sha1_begin(&m_sha1);
-			unsigned int len = sizeof(sha_parts);
-			unsigned char *buf = sha_parts;
-			sha1_hash(buf, len, &m_sha1);
-			sha1_end(sha_final, &m_sha1);
-		}
-
-		// calculate SHA1 from signature
-		unsigned char sha1_from_sig[SHA1_DIGEST_SIZE];
-		{
-			BigInt _signature;
-			_signature.Set(signature, sizeof(signature));
-			//printf("signature: "); _signature.print();
-
-			BigInt _publicKey;
-			_publicKey.Set(publicKeyNintendo, sizeof(publicKeyNintendo));
-			//printf("public key: "); _publicKey.print();
-
-			BigInt big_sha1;
-			big_sha1.PowMod(_signature, _publicKey);
-			//printf("big_sha1: "); big_sha1.print();
-			big_sha1.Get(sha1_from_sig, sizeof(sha1_from_sig));
-		}
-		
-		bool ok = (memcmp(sha_final, sha1_from_sig, SHA1_DIGEST_SIZE) == 0);
-		printf("DS Download Play(TM) / Wireless MultiBoot signature: %s\n", ok ? "OK" : "INVALID");
-		if (!ok)
-		{
-			printf("header hash:    \t"); for (int i=0; i<SHA1_DIGEST_SIZE; i++) printf("%02X", (sha_parts + 0*SHA1_DIGEST_SIZE)[i]); printf("\n");
-			printf("ARM9 hash:      \t"); for (int i=0; i<SHA1_DIGEST_SIZE; i++) printf("%02X", (sha_parts + 1*SHA1_DIGEST_SIZE)[i]); printf("\n");
-			printf("ARM7 hash:      \t"); for (int i=0; i<SHA1_DIGEST_SIZE; i++) printf("%02X", (sha_parts + 2*SHA1_DIGEST_SIZE)[i]); printf("\n");
-			printf("combined hash:  \t"); for (int i=0; i<SHA1_DIGEST_SIZE; i++) printf("%02X", sha_final[i]); printf("\n");
-			printf("signature hash: \t"); for (int i=0; i<SHA1_DIGEST_SIZE; i++) printf("%02X", sha1_from_sig[i]); printf("\n");
-		}
-	}
+	(void)fNDS;
+	(void)header;
+	(void)romType;
 	
 	// CRC32
 	{
@@ -518,7 +304,6 @@ void ShowVerboseInfo(FILE *fNDS, Header &header, int romType)
 		printf("\nSMT dumper v1.0 corruption check: \t%s\n", (crc32 == 0x7E8B456F) ? "CORRUPTED" : "OK");
 	}
 
-	// check ARM7 entry address
 	if ((header.arm7_entry_address < header.arm7_ram_address) ||
 		(header.arm7_entry_address > header.arm7_ram_address + header.arm7_size))
 	{
@@ -539,48 +324,6 @@ void ShowInfo(char *ndsfilename)
 
 	printf("Header information:\n");
 	ShowHeaderInfo(header, romType);
-
-	// banner info
-	if (header.banner_offset)
-	{
-		Banner banner;
-		fseek(fNDS, header.banner_offset, SEEK_SET);
-		if (fread(&banner, 1, sizeof(banner), fNDS))
-		{
-			unsigned short banner_crc = CalcBannerCRC(banner);
-			printf("\n");
-			printf("Banner CRC:                     \t0x%04X (%s)\n", (int)banner.crc, (banner_crc == banner.crc) ? "OK" : "INVALID");
-	
-			for (int language=1; language<=1; language++)
-			{
-				int line = 1;
-				bool nextline = true;
-				for (int i=0; i<128; i++)
-				{
-					unsigned short c = banner.title[language][i];
-					if (c >= 128) c = '_';
-					if (c == 0x00) { printf("\n"); break; }
-					if (c == 0x0A)
-					{
-						nextline = true;
-					}
-					else
-					{
-						if (nextline)
-						{
-							if (line != 1) printf("\n");
-							printf("%s banner text, line %d:", bannerLanguages[language], line);
-							for (unsigned int i=0; i<11 - strlen(bannerLanguages[language]); i++) putchar(' ');
-							printf("\t");
-							nextline = false;
-							line++;
-						}
-						putchar(c);
-					}
-				}
-			}
-		}
-	}
 
 	// ARM9 footer
 	fseek(fNDS, header.arm9_rom_offset + header.arm9_size, SEEK_SET);

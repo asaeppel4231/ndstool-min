@@ -1,14 +1,9 @@
 #include <time.h>
 #include <unistd.h>
 #include "ndstool.h"
-#include "logo.h"
-#include "raster.h"
-#include "banner.h"
 #include "overlay.h"
-#include "loadme.h"
 #include "ndstree.h"
 #include "elf.h"
-#include "sha1.h"
 #include "crc.h"
 
 #include <algorithm>
@@ -39,40 +34,6 @@ const unsigned char nintendo_logo[] =
 	0x78,0x00,0x90,0xCB,0x88,0x11,0x3A,0x94,0x65,0xC0,0x7C,0x63,0x87,0xF0,0x3C,0xAF,
 	0xD6,0x25,0xE4,0x8B,0x38,0x0A,0xAC,0x72,0x21,0xD4,0xF8,0x07,
 };
-
-const unsigned char hmac_sha1_key[] =
-{
-	0x21,0x06,0xC0,0xDE,0xBA,0x98,0xCE,0x3F,0xA6,0x92,0xE3,0x9D,0x46,0xF2,0xED,0x01,
-	0x76,0xE3,0xCC,0x08,0x56,0x23,0x63,0xFA,0xCA,0xD4,0xEC,0xDF,0x9A,0x62,0x78,0x34,
-	0x8F,0x6D,0x63,0x3C,0xFE,0x22,0xCA,0x92,0x20,0x88,0x97,0x23,0xD2,0xCF,0xAE,0xC2,
-	0x32,0x67,0x8D,0xFE,0xCA,0x83,0x64,0x98,0xAC,0xFD,0x3E,0x37,0x87,0x46,0x58,0x24,
-};
-
-void Sha1Hmac(u8 output[20], FILE* f, unsigned int pos, unsigned int size)
-{
-	sha1_ctx cx[1];
-	u8 readbuf[4096];
-	u8 keypad[0x40];
-	for (int i = 0; i < 0x40; i ++) keypad[i] = hmac_sha1_key[i]^0x36;
-	sha1_begin(cx);
-	sha1_hash(keypad, 0x40, cx);
-	unsigned int tmp = ftell(f);
-	fseek(f, pos, SEEK_SET);
-	while (size)
-	{
-		unsigned int rdbytes = size > sizeof(readbuf) ? sizeof(readbuf) : size;
-		fread(readbuf, 1, rdbytes, f);
-		sha1_hash(readbuf, rdbytes, cx);
-		size -= rdbytes;
-	}
-	sha1_end(output, cx);
-	for (int i = 0; i < 0x40; i ++) keypad[i] = hmac_sha1_key[i]^0x5c;
-	sha1_begin(cx);
-	sha1_hash(keypad, 0x40, cx);
-	sha1_hash(output, 20, cx);
-	sha1_end(output, cx);
-	fseek(f, tmp, SEEK_SET);
-}
 
 /*
  * HasElfExtension
@@ -370,35 +331,9 @@ void Create()
 	if (headersize) header.rom_header_size = headersize;
 	if (header.rom_header_size == 0) header.rom_header_size = bSecureSyscalls ? 0x4000 : 0x200;
 
-	// load a logo
-	if (logofilename)
-	{
-		char *p = strrchr(logofilename, '.');
-		if (!strcmp(p, ".bmp"))
-		{
-			CRaster raster;
-			if (raster.LoadBMP(logofilename) < 0) exit(1);
-			unsigned char white = (raster.palette[0].rgbGreen >= 128) ? 0 : 1;
-			if (LogoConvert(raster.raster, header.logo, white) < 0) exit(1);
-		}
-		else
-		{
-			FILE *fi = fopen(logofilename, "rb");
-			if (!fi) { fprintf(stderr, "Cannot open file '%s'.\n", logofilename); exit(1); }
-			fread(&header.logo, 1, 156, fi);
-			fclose(fi);
-		}
-	}
-	else if (header.rom_header_size > 0x200)	// use Nintendo logo
+	if (header.rom_header_size > 0x200)
 	{
 		memcpy(((unsigned char *)&header) + 0xC0, nintendo_logo, sizeof(nintendo_logo));
-	}
-	else	// add small NDS loader
-	{
-		if (loadme_size != 156) { fprintf(stderr, "loadme size error\n"); exit(1); }
-		memcpy(header.logo, loadme, loadme_size);		// self-contained NDS loader for *Me GBA cartridge boot
-		memcpy(&header.offset_0xA0, "SRAM_V110", 9);		// allow GBA cartridge SRAM backup
-		memcpy(&header.offset_0xAC, "PASS01\x96", 7);		// automatically start with FlashMe, make it look more like a GBA rom
 	}
 
 	// override default title/game/maker codes
@@ -567,40 +502,9 @@ void Create()
 		header.fat_offset = (header.fnt_offset + header.fnt_size + fat_align) &~ fat_align;
 		header.fat_size = file_count * 8;		// each entry contains top & bottom offset
 
-		// banner after FNT/FAT
-		if (bannerfilename)
-		{
-			header.banner_offset = (header.fat_offset + header.fat_size + banner_align) &~ banner_align;
-			fseek(fNDS, header.banner_offset, SEEK_SET);
-			if (bannertype == BANNER_IMAGE)
-			{
-				char * Ext = strrchr(bannerfilename, '.');
-				if (Ext && strcasecmp(Ext, ".bmp") == 0)
-					IconFromBMP();
-				else if (Ext && strcasecmp(Ext, ".grf") == 0)
-					IconFromGRF();
-				else
-				{
-					fprintf(stderr,
-						"Banner File Error: Unknown extension '%s'!\n", Ext);
-					exit(1);
-				}
-			}
-			else
-			{
-				CopyFromBin(bannerfilename, &bannersize);
-			}
-
-			file_top = header.banner_offset + bannersize;
-			header.banner_size = bannersize;
-		}
-		else
-		{
-			file_top = header.fat_offset + header.fat_size;
-			header.banner_offset = 0;
-			header.banner_size = 0;
-		}
-
+		file_top = header.fat_offset + header.fat_size;
+		header.banner_offset = 0;
+		header.banner_size = 0;
 		file_end = file_top;	// no file data as yet
 
 		// add (hidden) overlay files
@@ -777,11 +681,6 @@ void Create()
 		header.tid_high = titleidHigh;
 		memset(header.age_ratings, 0x80, sizeof(header.age_ratings));
 
-		Sha1Hmac(header.hmac_arm9, fNDS, header.arm9_rom_offset, header.arm9_size);
-		Sha1Hmac(header.hmac_arm7, fNDS, header.arm7_rom_offset, header.arm7_size);
-		Sha1Hmac(header.hmac_icon_title, fNDS, header.banner_offset, header.banner_size);
-		Sha1Hmac(header.hmac_arm9i, fNDS, header.dsi9_rom_offset, header.dsi9_size);
-		Sha1Hmac(header.hmac_arm7i, fNDS, header.dsi7_rom_offset, header.dsi7_size);
 		memset(header.rsa_signature, 0xFF, 0x80);
 	}
 
@@ -808,7 +707,7 @@ void Create()
 		header.rsa_signature[0x00] = 0;
 		header.rsa_signature[0x01] = 1;
 		header.rsa_signature[0x6B] = 0;
-		sha1(&header.rsa_signature[0x6C], (const unsigned char*)&header, 0xE00);
+		memset(&header.rsa_signature[0x6C], 0, 0xE00);
 	}
 
 	fseek(fNDS, 0, SEEK_SET);
